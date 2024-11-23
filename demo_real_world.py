@@ -7,12 +7,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 import torch
-from depth.real.environment_jk import RealEnv
-from depth.utils.perception import CameraIntrinsic
-from depth.benchmark.benchmark import PickleRecord
-from depth.benchmark.stop_policy import PixelStopPolicy
-from depth.benchmark.pipeline import CorrespondenceBasedPipeline, VisOpt
-from depth.utils.depth_anything_v2.dpt import DepthAnythingV2
+from depth_pc.real.environment_jk import RealEnv
+from depth_pc.utils.perception import CameraIntrinsic
+from depth_pc.benchmark.benchmark import PickleRecord
+from depth_pc.benchmark.stop_policy import PixelStopPolicy
+from depth_pc.benchmark.pipeline import CorrespondenceBasedPipeline, VisOpt
+from depth_pc.utils.depth_anything_v2.dpt import DepthAnythingV2
 import matplotlib
 matplotlib.use("TkAgg")
 
@@ -61,52 +61,30 @@ stopper = PixelStopPolicy(waiting_time=0.2, conduct_thresh=0.1)
 
 home = [-0.35, -0.372, 0.42, 179.96, -1.297, 148.94]
 env.go(pose=home)
-go_time = time.time()
-current_round = 17
+current_round = 0
 iter_rounds = True
 
 while iter_rounds:
-    # current_round += 1
     if current_round > total_rounds:
         print("[INFO] All test rounds complete, exit")
         break
-
     print("[INFO] ----------------------------------")
     print("[INFO] Start test round {}/{}".format(current_round, total_rounds))
-
-    # move to another place
     env.recover_end_joint_pose()
-    # tar_bcT = env.sample_target_pose()
     tar_bcT = target_poses_seq[current_round-1]
     env.move_to(tar_bcT)
-
-    # tar_bcT = target_large
-    # env.move_to(tar_bcT)
-
     tar_tcp_T = env.get_current_base_tcp_T()
     print("[INFO] moved to target pose")
-    # time.sleep(1.0)
     tar_img, tar_depth, dist_scale = env.observation()
-    dist_scale = min(max(0.2, dist_scale), 0.3)
     tar_depth = depth_model.infer_image(tar_img)
     tar_depth = process_depth(tar_depth)
-
-    cv2.imwrite(f"{img_folder}/round_{current_round}_target.png", tar_img)
-    cv2.imwrite(f"{img_folder}/round_{current_round}_target_Depth.png", tar_depth)
     tar_img = np.ascontiguousarray(tar_img[:, :, [2, 1, 0]])
-
-    pipeline.set_target(tar_img, tar_depth, dist_scale)
+    pipeline.set_target(tar_img, tar_depth)
     ini_bcT = initial_poses_seq[current_round-1]
-    # ini_bcT = ini_large
     env.move_to(ini_bcT)
     print("[INFO] moved to initial pose")
-
-    if manual_mode:
-        input("[INFO] Press Enter to continue: ")
-
     actual_conduct_vel = np.zeros(6)
     stopper.reset()
-    
     start_time = time.time()
     matches = []
     graphes = []
@@ -115,18 +93,14 @@ while iter_rounds:
         cur_bcT = env.get_current_base_cam_T()
         cur_tcp_T = env.get_current_base_tcp_T()
         cur_img, cur_depth, _ = env.observation()
-        start_dpt = time.time()
         cur_depth = depth_model.infer_image(cur_img)
         cur_depth = process_depth(cur_depth)
-        end_dpt = time.time()
         cur_img = np.ascontiguousarray(cur_img[:, :, [2, 1, 0]])
 
-        end_sam = time.time()
         vel, data, timing, match, graph = pipeline.get_control_rate(cur_img, cur_depth)
         matches.append(match)
         graphes.append(graph)
         depthes.append(cv2.applyColorMap(cur_depth, cv2.COLORMAP_JET))
-        end_infer = time.time()
         need_stop = (
             stopper(data, time.time()) or 
             not env.is_safe_pose() or
@@ -134,9 +108,6 @@ while iter_rounds:
             (time.time() - start_time > 30)
         )
         pose_error = np.linalg.norm(cur_tcp_T[:3,3]-tar_tcp_T[:3,3])
-        # need_stop = True if pose_error < 0.01 else False
-        print(f"[INFO] pose_error: {pose_error}, stopper: {stopper(data, time.time())}, need_stop: {need_stop}")
-        print(f"[INFO] round{current_round} is safe : {env.is_safe_pose()}")
         pkl_record.append_traj(cur_bcT, vel, timing, stopper.cur_err, data)
         
         if need_stop:
@@ -151,9 +122,6 @@ while iter_rounds:
             if manual_mode:
                 input("[INFO] Press Enter to start round {}: ".format(current_round + 1))
             break
-
-        print("[INFO] dist_scale at target = {:.3f}, pred_vel = {}"
-              .format(dist_scale, np.round(vel, 2)))
         actual_conduct_vel = env.action(vel)
         # break
 
