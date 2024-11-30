@@ -1,7 +1,6 @@
 import os
 import cv2
 import time
-import sys
 import json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -49,7 +48,7 @@ with open("pipeline.json", "r") as fp:
     env = RealEnv(args, resample=True, auto_reinit=False)
     target_poses_seq, initial_poses_seq = env.generate_poses(total_rounds*2, seed=42)
 
-pipeline = CorrespondenceBasedPipeline.from_file("pipeline_jk5.json")
+pipeline = CorrespondenceBasedPipeline.from_file("pipeline.json")
 result_folder = os.path.join(
     "experiment_results_dpt",
     "base2_test",
